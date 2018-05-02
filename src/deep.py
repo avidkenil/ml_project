@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.autograd import Variable
 
 import collections as col
+import datetime as dt
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve, auc
 
 
 def get_word_srs(text_data):
@@ -236,9 +238,9 @@ def get_device_func():
         return lambda _: _.cpu() if _ is not None else None
 
 
-def validate(corpus, encoder, word_embeddings,
+def validate(corpus, model, word_embeddings,
              max_batch_size, dictionary, device):
-    encoder.eval()
+    model.eval()
     total_loss = 0
     criterion = torch.nn.BCEWithLogitsLoss()
     for i, batch_size, x_batch, y_batch in \
@@ -247,9 +249,9 @@ def validate(corpus, encoder, word_embeddings,
         ids_batch = device(Variable(
             torch.LongTensor(ids_batch), volatile=True,
         ))
-        y_batch = device(Variable(torch.LongTensor(y_batch)))
-        hidden = device(encoder.initial_hidden(batch_size))
-        pred_batch = encoder(
+        y_batch = device(Variable(torch.LongTensor(y_batch), volatile=True))
+        hidden = device(model.initial_hidden(batch_size))
+        pred_batch = model(
             enc_input=ids_batch,
             lengths=lengths,
             word_embeddings=word_embeddings,
@@ -263,9 +265,9 @@ def validate(corpus, encoder, word_embeddings,
     return total_loss / len(corpus.x_df)
 
 
-def inference(corpus, encoder, word_embeddings,
-             max_batch_size, dictionary, device):
-    encoder.eval()
+def inference(corpus, model, word_embeddings,
+              max_batch_size, dictionary, device, to_prob=True):
+    model.eval()
     preds = []
     for i, batch_size, x_batch, y_batch in \
             corpus.iterate(max_batch_size, shuffle=False):
@@ -273,12 +275,107 @@ def inference(corpus, encoder, word_embeddings,
         ids_batch = device(Variable(
             torch.LongTensor(ids_batch), volatile=True,
         ))
-        hidden = device(encoder.initial_hidden(batch_size))
-        pred_batch = encoder(
+        hidden = device(model.initial_hidden(batch_size))
+        pred_batch = model(
             enc_input=ids_batch,
             lengths=lengths,
             word_embeddings=word_embeddings,
             hidden=hidden
         )
         preds.append(pred_batch.data.cpu().numpy())
-    return np.vstack(preds)
+    preds = np.vstack(preds)
+    if to_prob:
+        return torch.sigmoid(torch.Tensor(preds)).numpy()
+    else:
+        return preds
+
+
+def train_model(
+        param_dict, device, full_word_srs,
+        train_corpus, val_corpus,
+        batch_size, log_step):
+    word_list = full_word_srs[:param_dict["top_k_words"]].index.tolist()
+    word_embeddings, dictionary = read_embeddings(
+        param_dict["glove_path"],
+        vocabulary=word_list,
+    )
+    word_embeddings = device(word_embeddings)
+    word_embeddings.weight.requires_grad = False
+    model = device(RNNEncoder(
+        embedding_size=word_embeddings.embedding_dim,
+        hidden_size=param_dict["hidden_size"],
+        output_classes=6,
+        bidirectional=True,
+        layers=1,
+        dropout=param_dict["dropout_prob"],
+    ))
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=param_dict["learning_rate"],
+    )
+    criterion = torch.nn.BCEWithLogitsLoss()
+    val_loss_log = []
+    for epoch in range(param_dict["n_epochs"]):
+        for i, batch_size, x_batch, y_batch in \
+                train_corpus.iterate(batch_size):
+            model.train()
+            optimizer.zero_grad()
+            ids_batch, lengths = dictionary.sentences2ids(x_batch, eos=True)
+            ids_batch = device(Variable(torch.LongTensor(ids_batch)))
+            y_batch = device(Variable(torch.LongTensor(y_batch)))
+            hidden = device(model.initial_hidden(batch_size))
+            pred_batch = model(
+                enc_input=ids_batch,
+                lengths=lengths,
+                word_embeddings=word_embeddings,
+                hidden=hidden
+            )
+            loss = criterion(
+                pred_batch.view(-1),
+                y_batch.contiguous().view(-1).float(),
+            )
+            loss.backward()
+            torch.nn.utils.clip_grad_norm(model.parameters(), 5)
+            optimizer.step()
+            if log_step > 0 and i % log_step == 0:
+                val_loss = validate(
+                    val_corpus, model, word_embeddings,
+                    batch_size, dictionary, device,
+                )
+                print(f"EPOCH {epoch}@{i}: {val_loss}, {dt.datetime.now()}")
+                val_loss_log.append((epoch, i, val_loss))
+        val_loss = validate(
+            val_corpus, model, word_embeddings,
+            batch_size, dictionary, device,
+        )
+        print(f"EPOCH {epoch}: {val_loss}, {dt.datetime.now()}")
+        val_loss_log.append((epoch, i, val_loss))
+
+    return model, word_embeddings, dictionary, val_loss_log
+
+
+def get_auc(true_y, prob):
+    auc_ls = []
+    assert true_y.shape == prob.shape
+    for i in range(true_y.shape[1]):
+        fpr, tpr, threshold = roc_curve(true_y.iloc[:, i], prob[:, i])
+        auc_value = auc(fpr, tpr)
+        auc_ls.append(auc_value)
+    return auc_ls
+
+
+def plot_roc(true_y, prob, target_cols):
+    auc_ls = []
+    plt.figure(figsize=(10, 8))
+    for i, column in enumerate(target_cols):
+        fpr, tpr, threshold = roc_curve(true_y.iloc[:, i], prob[:, i])
+        auc_value = auc(fpr, tpr)
+        auc_ls.append(auc_value)
+        plt.plot(fpr, tpr, label=f'auc_{column}: {auc_value:0.5f}')
+    plt.xlabel('fpr')
+    plt.ylabel('tpr')
+    plt.title('ROC Curve')
+    plt.xlim([0, 1])
+    plt.ylim([0, 1])
+    plt.legend(bbox_to_anchor=(1.01, 1), loc=2, borderaxespad=0.)
+    plt.show()
