@@ -1,4 +1,5 @@
-data
+data/
+pickle_objects/
 
 # MAC OS stuff
 .DS_Store
