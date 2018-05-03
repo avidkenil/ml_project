@@ -32,6 +32,7 @@ def pretty_print(data_dict):
         print(str(e))
 
 def load_data(data_path='../data/', is_clean=0, is_os=0):
+    print('Loading data...')
     clean = '_clean' if is_clean else ''
     os = '_os' if is_os else ''
     data_sets = {}
@@ -75,6 +76,7 @@ n_grams = 2
 ngram_range = list(map(lambda x: x+1,range(n_grams)))
 
 def load_ngrams(data, num_feats, ngram_range, pickle_path='../pickle_objects/', is_clean=1, is_os=0):
+    print('Loading ngrams...')
     clean = '_clean' if is_clean else ''
     os = '_os' if is_os else ''
     ngrams = {}
@@ -99,6 +101,7 @@ ngrams = load_ngrams(data_sets['X_train'+clean+os], num_feats, ngram_range, \
                      pickle_path, is_clean, is_os)
 
 def transform_to_ngrams(data_set, data_cols, ngrams):
+    print('Transforming data to ngrams...')
     for data in data_cols:
         for vec in ['countvec', 'tfidf']:
             data_sets[data+'_'+vec] = ngrams[vec].transform(data_sets[data]['comment_text'])
@@ -108,6 +111,7 @@ data_sets = transform_to_ngrams(data_sets, ['X_train'+clean+os, 'X_val'+clean+os
                                             'X_train_val'+clean+os, 'X_test'+clean+os], ngrams)
 
 def normalize_data(X_train, X_test):
+    print('Normalizing data...')
     scaler = StandardScaler().fit(X_train)
     X_train = scaler.transform(X_train)
     X_test = scaler.transform(X_test)
@@ -117,7 +121,8 @@ def fit_model(base_model, X, y, param_grid, target_cols, scoring='roc_auc', cv=N
     if cv:
         models, mean_val_scores, params = {}, [], []
         for target in target_cols:
-            model_target = GridSearchCV(base_model, param_grid, cv=cv, scoring=scoring, refit=False)
+            print('\tRunning for {}'.format(target))
+            model_target = GridSearchCV(base_model, param_grid, cv=cv, scoring=scoring, n_jobs=-1, refit=False)
             model_target.fit(X, y[target])
             mean_val_scores.append(model_target.cv_results_['mean_test_score'])
             if not params:
@@ -129,11 +134,13 @@ def fit_model(base_model, X, y, param_grid, target_cols, scoring='roc_auc', cv=N
     else:
         models = {}
         for target in target_cols:
+            print('\tRunning for {}'.format(target))
             base_model.set_params(**param_grid).fit(X, y[target])
             models[target] = base_model
     return models
 
 def dump_models(model, X, model_name, target_cols, model_path='../pickle_objects/models/', cv=None):
+    print('Dumping {}...'.format(model_name))
     if not path.exists(model_path):
         makedirs(model_path)
     file_name = '{}{}_{}.pkl'.format(model_path, model_name, X)
@@ -145,40 +152,45 @@ def fit_all_models(data_sets, data_cols, model_list, param_grids, \
     best_models, best_params, best_scores = {}, {}, {}
     X, y = data_cols
     for model in model_list:
+        print('Running {}...'.format(model))
         best_models[model] = fit_model(model_list[model], data_sets[X], \
                                           data_sets[y], param_grids[model], \
                                           target_cols, 'roc_auc', cv)
         if cv:
-            print('Model = {}'.format(model))
             pretty_print(best_models[model])
         else:
             dump_models(best_models[model], X, model, target_cols, model_path, cv)
     return best_models
 
 model_list = {
-    'bnb': BernoulliNB(),
+#     'bnb': BernoulliNB(),
 #     'gnb': GaussianNB(),
     'lrl1': LogisticRegression(penalty='l1'),
     'lrl2': LogisticRegression(penalty='l2'),
     'rf': RandomForestClassifier(),
     'xgb': XGBClassifier(),
-    'svm': SVC(kernel='linear')
+#     'svm': SVC(kernel='linear')
 }
     
 param_grids = {
-    'bnb': {},
+#     'bnb': {},
 #     'gnb': {},
-    'lrl1': {'C': np.concatenate((np.reciprocal(np.arange(1, 13, 3)), \
-                                  np.logspace(1, 6, num=6, endpoint=True, base=10)))},
-    'lrl2': {'C': np.concatenate((np.reciprocal(np.arange(1, 13, 3)), \
-                                  np.logspace(1, 6, num=6, endpoint=True, base=10)))},
+    'lrl1': {'C': np.concatenate((np.reciprocal(np.arange(1., 13., 3.)), \
+                                  np.logspace(1., 6., num=6, endpoint=True, base=10)))},
+    'lrl2': {'C': np.concatenate((np.reciprocal(np.arange(1., 13., 3.)), \
+                                  np.logspace(1., 6., num=6, endpoint=True, base=10)))},
     'rf': {
         'n_estimators': np.arange(50, 250, 50),
         'max_features': ['auto', 'log2'],
         'max_depth': np.arange(3, 13, 2)
     },
-    'xgb': {'n_estimators': [1]},
-    'svm': {'C': np.concatenate((np.arange(1, 13, 3), np.logspace(1, 6, num=6, endpoint=True, base=10)))},
+    'xgb': {
+        'n_estimators': np.arange(50, 250, 50),
+        'max_depth': np.arange(3, 13, 2),
+        'learning_rate': [1e-1, 1e-3, 1e-5],
+        'reg_lambda': [1, 10, 1e-1]
+    },
+#     'svm': {'C': np.concatenate((np.arange(1, 13, 3), np.logspace(1, 6, num=6, endpoint=True, base=10)))},
 }
 
 # Set predefined split for CV
@@ -197,6 +209,7 @@ pretty_print(best_models)
 def refit_best_model(data_sets, model_list, data_cols, best_models, \
                      target_cols, pickle_path='../pickle_path/'):
     # Refit all models with all data sets with best hyperparameters
+    print('Refitting with best parameters...')
     best_params = {}
     X, y = data_cols
     for model in model_list:
@@ -226,6 +239,7 @@ def plot_model_roc_curves(y_test, probabilities, model_list, target_cols, vec='c
     # Plot by model
     if model_or_target == 'model':
         for model in model_list:
+            print('Plotting ROC curve for {}...'.format(model))
             aucs[model] = {}
             plt.figure(figsize=(10,8))
             for target in target_cols:
@@ -244,6 +258,7 @@ def plot_model_roc_curves(y_test, probabilities, model_list, target_cols, vec='c
     # Plot by target column
     elif model_or_target == 'target':
         for target in target_cols:
+            print('Plotting ROC curve for {}...'.format(target))
             aucs[target] = {}
             plt.figure(figsize=(10,8))
             for model in model_list:
@@ -264,6 +279,7 @@ def plot_model_roc_curves(y_test, probabilities, model_list, target_cols, vec='c
     return aucs
 
 def get_mean_auc(aucs, model_list=None, target_cols=None, model_or_target='model'):
+    print('Computing mean AUCs...')
     mean_aucs = {}
     # Compute mean auc by model
     columns = model_list if model_or_target == 'model' else target_cols
@@ -282,6 +298,7 @@ mean_aucs = get_mean_auc(aucs, model_list, target_cols, model_or_target)
 pretty_print(mean_aucs)
 
 def get_aucs_df(aucs, model_list, target_cols, model_or_target='model'):
+    print('Generating AUCs DataFrame...')
     aucs_df = pd.DataFrame.from_dict(aucs)
     aucs_df['mean'] = np.mean(aucs_df, axis=1)
     aucs_df.loc['mean'] = np.mean(aucs_df, axis=0)
@@ -289,6 +306,7 @@ def get_aucs_df(aucs, model_list, target_cols, model_or_target='model'):
 
 aucs_df = get_aucs_df(aucs, model_list, target_cols, model_or_target)
 
+print('Dumping AUCs DataFrame...')
 pickle.dump(aucs_df, open('{}aucs_df.pkl'.format(pickle_path), 'wb'))
 
 print(aucs_df)
