@@ -1,5 +1,6 @@
 data/
 pickle_objects/
+logs/
 
 # MAC OS stuff
 .DS_Store
