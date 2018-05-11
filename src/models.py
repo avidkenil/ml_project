@@ -310,9 +310,9 @@ def main():
 
     # Set all folder paths
     data_path = '../data/'
-    pickle_path = '../pickle_objects2/'
-    model_path = pickle_path + 'models/'
-    plots_path = '../plots2/'
+    pickle_path = '../pickle_objects/'
+    model_path = pickle_path + 'model/'
+    plots_path = '../plots/'
 
     # Specify initial variables
     target_cols = ['toxic', 'severe_toxic', 'obscene', 'threat', 'insult', 'identity_hate']
