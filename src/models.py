@@ -40,6 +40,15 @@ def create_paths(path_list):
             makedirs(folder_path)
     print('Done.')
 
+# Dump data to disk if not present
+def dump_data(data, name, file_path, force=False):
+    if force or not path.isfile(file_path):
+        print('Dumping {}... '.format(name), end='', flush=True)
+        pickle.dump(data, open(file_path, 'wb'))
+        print('Done.')
+    else:
+        print('Did not dump {}: File already exists in "{}".'.format(name, file_path)
+
 # Load all data sets
 def load_data(data_cols, data_path='../data/', clean='_clean', os=''):
     print('Loading data... ', end='', flush=True)
@@ -67,12 +76,11 @@ def load_ngrams(data_sets, data_col, num_feats, ngrams, vectorizers, pickle_path
             print('Done.')
         else:
             # Fit, store, and load vectorizer
-            print('{} ngrams not found. Fitting and dumping them... '.format(vec), end='', flush=True)
+            print('{} ngrams not found. '.format(vec), end='', flush=True)
             ngrams_vec = CountVectorizer(**vec_params) if vec == 'countvec' else TfidfVectorizer(**vec_params)
             ngrams_vec.fit(data_sets[data_col]['comment_text'])
             ngrams_data[vec] = ngrams_vec
-            pickle.dump(ngrams_vec, open(file_name, 'wb'))
-            print('Done.')
+            dump_data(ngrams_vec, '{} ngrams'.format(vec), file_name)
     return ngrams_data
 
 # Transform data on fitted ngrams data
@@ -118,10 +126,10 @@ def generate_features(data_sets, data_cols, vectorizers):
     return data_sets
 
 # Dump all models of a type fitted on all target columns
-def dump_models(model, X, model_name, target_cols, model_path='../pickle_objects/models/'):
+def dump_models(model, X, model_name, target_cols, model_path='../pickle_objects/models/', force=False):
     for target in target_cols:
         file_name = '{}{}_{}_{}.pkl'.format(model_path, model_name, X, target)
-        if not path.isfile(file_name):
+        if force or not path.isfile(file_name):
             print('\t\tDumping {} fitted on {}... '.format(model_name, target), end='', flush=True)
             pickle.dump(model[target], open(file_name, 'wb'))
             print('Done.')
@@ -226,12 +234,12 @@ def predict_labels_and_probas(fitted_models, model_list, X, target_cols):
 
 # Plot ROC curves for all models / target columns
 def plot_model_roc_curves(y_test, probabilities, model_list, target_cols, vec='countvec', \
-                          plot_type='model', features='_features', plots_path='../plots/'):
+                          plot_type='model', features='_features', plots_path='../plots/', force=False):
     aucs = {}
     # Plot by model
     if plot_type == 'model':
         for model in model_list:
-            print('\tPlotting ROC curve for {}... '.format(model), end='', flush=True)
+            print('\tPlotting ROC curve for {}...'.format(model))
             aucs[model] = {}
             plt.figure(figsize=(5,4))
             for target in target_cols:
@@ -245,13 +253,19 @@ def plot_model_roc_curves(y_test, probabilities, model_list, target_cols, vec='c
             plt.xlim([0, 1])
             plt.ylim([0, 1])
             plt.legend(loc=4)
-            plt.savefig(plots_path+'roc_'+model+'_'+vec+features+'.jpg')
+            file_path = plots_path+'roc_'+model+'_'+vec+features+'.jpg'
+            if force or not path.isfile(file_path):
+                print('\tDumping ROC plot to {}... '.format(file_path), end='', flush=True)
+                plt.savefig(file_path)
+                print('Done.')
+            else:
+                print('\tDid not dump ROC plot: File already exists in "{}".'.format(file_path)
             plt.close('all')
-            print('Done.')
+            print('\tDone.')
     # Plot by target column
     elif plot_type == 'target':
         for target in target_cols:
-            print('\tPlotting ROC curve for {}... '.format(target), end='', flush=True)
+            print('\tPlotting ROC curve for {}...'.format(target))
             aucs[target] = {}
             plt.figure(figsize=(5,4))
             for model in model_list:
@@ -265,9 +279,15 @@ def plot_model_roc_curves(y_test, probabilities, model_list, target_cols, vec='c
             plt.xlim([0, 1])
             plt.ylim([0, 1])
             plt.legend(loc=4)
-            plt.savefig(plots_path+'roc_'+target+'_'+vec+features+'.jpg')
+            file_path = plots_path+'roc_'+target+'_'+vec+features+'.jpg'
+            if force or not path.isfile(file_path):
+                print('\tDumping ROC plot to {}... '.format(file_path), end='', flush=True)
+                plt.savefig(file_path)
+                print('\tDone.')
+            else:
+                print('\tDid not dump ROC plot: File already exists in "{}".'.format(file_path)
             plt.close('all')
-            print('Done.')
+            print('\tDone.')
     else:
         raise ValueError("Parameter 'plot_type' must be one of 'model' or 'target'.")
     return aucs
@@ -294,7 +314,7 @@ def get_aucs_df(aucs, model_list, target_cols, plot_type='model'):
 
 # Plot all ROC curves, dump all mean column-wise AUCs, generate summary AUCs dataframe, and return final predictions
 def plot_and_dump_results(data_sets, best_refitted_models, model_list, vec, target_cols, plot_type='model', clean='_clean', \
-                          os='', features='_features', plots_path='../plots/', pickle_path='../pickle_objects/'):
+                          os='', features='_features', plots_path='../plots/', pickle_path='../pickle_objects/', force=False):
 
     probabilities, predictions = predict_labels_and_probas(best_refitted_models[vec], model_list, \
                                                            data_sets['X_test'+clean+os+'_'+vec+features], target_cols)
@@ -313,9 +333,8 @@ def plot_and_dump_results(data_sets, best_refitted_models, model_list, vec, targ
     print('\tAUCs DataFrame for {}:'.format(vec))
     print(aucs_df)
 
-    print('\tDumping AUCs DataFrame... ', end='', flush=True)
-    pickle.dump(aucs_df, open('{}aucs_{}{}.pkl'.format(pickle_path, vec, features), 'wb'))
-    print('Done.\n')
+    print('\t', end='', flush=True)
+    dump_data(aucs_df, 'AUCs DataFrame', '{}aucs_{}{}.pkl'.format(pickle_path, vec, features), force=force)
 
     if plot_type == 'model':
         return probabilities, predictions
@@ -451,8 +470,8 @@ def main():
             print('Done.')
 
     # Dump all final probabilities and predictions
-    pickle.dump(probabilities, open(pickle_path+'probabilities{}.pkl'.format(features), 'wb'))
-    pickle.dump(predictions, open(pickle_path+'predictions{}.pkl'.format(features), 'wb'))
+    dump_data(probabilities, 'Probabilities', pickle_path+'probabilities{}.pkl'.format(features))
+    dump_data(predictions, 'Predictions', pickle_path+'predictions{}.pkl'.format(features))
 
 if __name__ == "__main__":
     main()
