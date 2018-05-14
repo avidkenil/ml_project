@@ -47,7 +47,7 @@ def dump_data(data, name, file_path, force=False):
         pickle.dump(data, open(file_path, 'wb'))
         print('Done.')
     else:
-        print('Did not dump {}: File already exists in "{}".'.format(name, file_path)
+        print('Did not dump {}: File already exists in "{}".'.format(name, file_path))
 
 # Load all data sets
 def load_data(data_cols, data_path='../data/', clean='_clean', os=''):
@@ -76,7 +76,7 @@ def load_ngrams(data_sets, data_col, num_feats, ngrams, vectorizers, pickle_path
             print('Done.')
         else:
             # Fit, store, and load vectorizer
-            print('{} ngrams not found. '.format(vec), end='', flush=True)
+            print('{} ngrams not found. Fitting them... '.format(vec), end='', flush=True)
             ngrams_vec = CountVectorizer(**vec_params) if vec == 'countvec' else TfidfVectorizer(**vec_params)
             ngrams_vec.fit(data_sets[data_col]['comment_text'])
             ngrams_data[vec] = ngrams_vec
@@ -259,7 +259,7 @@ def plot_model_roc_curves(y_test, probabilities, model_list, target_cols, vec='c
                 plt.savefig(file_path)
                 print('Done.')
             else:
-                print('\tDid not dump ROC plot: File already exists in "{}".'.format(file_path)
+                print('\tDid not dump ROC plot: File already exists in "{}".'.format(file_path))
             plt.close('all')
             print('\tDone.')
     # Plot by target column
@@ -285,7 +285,7 @@ def plot_model_roc_curves(y_test, probabilities, model_list, target_cols, vec='c
                 plt.savefig(file_path)
                 print('\tDone.')
             else:
-                print('\tDid not dump ROC plot: File already exists in "{}".'.format(file_path)
+                print('\tDid not dump ROC plot: File already exists in "{}".'.format(file_path))
             plt.close('all')
             print('\tDone.')
     else:
@@ -320,7 +320,7 @@ def plot_and_dump_results(data_sets, best_refitted_models, model_list, vec, targ
                                                            data_sets['X_test'+clean+os+'_'+vec+features], target_cols)
     
     aucs = plot_model_roc_curves(data_sets['y_test'+clean+os], probabilities, model_list, \
-                                 target_cols, vec, features, plot_type, plots_path)
+                                 target_cols, vec, plot_type, features, plots_path, force)
 
     pretty_print(aucs)
 
@@ -334,7 +334,7 @@ def plot_and_dump_results(data_sets, best_refitted_models, model_list, vec, targ
     print(aucs_df)
 
     print('\t', end='', flush=True)
-    dump_data(aucs_df, 'AUCs DataFrame', '{}aucs_{}{}.pkl'.format(pickle_path, vec, features), force=force)
+    dump_data(aucs_df, 'AUCs DataFrame', '{}aucs_{}{}.pkl'.format(pickle_path, vec, features), force)
 
     if plot_type == 'model':
         return probabilities, predictions
