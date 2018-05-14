@@ -19,7 +19,9 @@ Download the data from the [Toxic Comment Classification Challenge webpage](http
 ### Usage
 Navigate to the [src](https://github.com/ranamihir/ml_project/tree/master/src) folder.
 
-Machine Learning models: `python3 models.py`
+Machine Learning models: Run the following commands (back to back):
+ - `python3 preprocessing.py`
+ - `python3 models.py`
 
 fastText models: Run the [fasttext](https://github.com/ranamihir/ml_project/blob/master/src/fasttext.ipynb) notebook.
 
