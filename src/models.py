@@ -246,7 +246,7 @@ def plot_model_roc_curves(y_test, probabilities, model_list, target_cols, vec='c
                 fpr, tpr, threshold = roc_curve(y_test[target], probabilities[model][target])
                 auc_value = auc(fpr, tpr)
                 aucs[model][target] = auc_value
-                plt.plot(fpr, tpr, label='{}: {:0.5f}'.format('auc{}_'.format(features)+target, auc_value))
+                plt.plot(fpr, tpr, label='{}: {:0.3f}'.format('auc{}_'.format(features)+target, auc_value))
             plt.xlabel('fpr')
             plt.ylabel('tpr')
             plt.title('ROC Curve for {}{} with {}'.format(model, features, vec))
@@ -272,7 +272,7 @@ def plot_model_roc_curves(y_test, probabilities, model_list, target_cols, vec='c
                 fpr, tpr, threshold = roc_curve(y_test[target], probabilities[model][target])
                 auc_value = auc(fpr, tpr)
                 aucs[target][model] = auc_value
-                plt.plot(fpr, tpr, label='{}: {:0.5f}'.format('auc{}_'.format(features)+model, auc_value))
+                plt.plot(fpr, tpr, label='{}: {:0.3f}'.format('auc{}_'.format(features)+model, auc_value))
             plt.xlabel('fpr')
             plt.ylabel('tpr')
             plt.title('ROC Curve for {}{} with {}'.format(target, features, vec))
@@ -362,7 +362,7 @@ def main():
     target_cols = ['toxic', 'severe_toxic', 'obscene', 'threat', 'insult', 'identity_hate']
     vectorizers = ['countvec', 'tfidf']
     plot_types = ['model', 'target']
-    data_cols = ['X_train', 'X_train_val', 'X_test', 'y_train', 'y_train_val', 'y_test']
+    data_cols = ['X_train', 'X_val', 'X_train_val', 'X_test', 'y_train', 'y_val', 'y_train_val', 'y_test']
     for i, col in enumerate(data_cols):
         data_cols[i] = col + clean + os
 
@@ -372,6 +372,15 @@ def main():
     data_sets = load_data(data_cols, data_path, clean=clean, os=os)
 
     print(data_sets['X_train'+clean+os].head())
+
+    # Print value counts for each target
+    for target in target_cols:
+        print('{}:'.format(target))
+        for data in data_sets:
+            if 'y' in data:
+                value_counts = data_sets[data][target].value_counts()
+                print('{}: {:.3f}%\t'.format(data, 100*value_counts[1]/sum(value_counts)), end='')
+        print('\n')
 
     # Set ngram variables
     num_feats = 1000
