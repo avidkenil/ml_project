@@ -3,7 +3,6 @@ import numpy as np
 import random
 import json
 import pickle
-import joblib
 from os import path, makedirs
 
 import matplotlib
@@ -14,12 +13,14 @@ from sklearn.model_selection import GridSearchCV, PredefinedSplit
 from sklearn.metrics import roc_curve, auc
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.base import clone
+from scipy import sparse
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import BernoulliNB
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 from xgboost.sklearn import XGBClassifier
+from nbsvm import NBSVMClassifier
 
 
 # Pretty print JSON objects
@@ -31,6 +32,7 @@ def pretty_print(data_dict):
     except Exception as e:
         print(str(e))
 
+# Create all required folder paths (recursively)
 def create_paths(path_list):
     print('Creating all folder paths... ', end='', flush=True)
     for folder_path in path_list:
@@ -39,18 +41,9 @@ def create_paths(path_list):
     print('Done.')
 
 # Load all data sets
-def load_data(data_path='../data/', is_clean=0, is_os=0):
+def load_data(data_cols, data_path='../data/', clean='_clean', os=''):
     print('Loading data... ', end='', flush=True)
-    clean = '_clean' if is_clean else ''
-    os = '_os' if is_os else ''
     data_sets = {}
-    data_cols = [
-        'data', 'X_train', 'X_val', 'X_train_val', 'X_test', \
-        'y_train', 'y_val', 'y_train_val', 'y_test'
-    ]
-    
-    for i, col in enumerate(data_cols):
-        data_cols[i] = col + clean + os
     
     for col in data_cols:
         data_sets[col] = pickle.load(open(data_path+'{}.pkl'.format(col),'rb'))
@@ -59,9 +52,7 @@ def load_data(data_path='../data/', is_clean=0, is_os=0):
     return data_sets
 
 # Load all ngrams data if present, otherwise fit on data and dump them
-def load_ngrams(data_sets, data_col, num_feats, ngrams, vectorizers, pickle_path='../pickle_objects/', is_clean=1, is_os=0):
-    clean = '_clean' if is_clean else ''
-    os = '_os' if is_os else ''
+def load_ngrams(data_sets, data_col, num_feats, ngrams, vectorizers, pickle_path='../pickle_objects/', clean='_clean', os=''):
     data_col += clean+os
     ngrams_data = {}
     ngram_range = list(map(lambda x: x+1,range(ngrams)))
@@ -93,13 +84,46 @@ def transform_to_ngrams(data_sets, data_cols, ngrams_data, vectorizers):
     print('Done.')
     return data_sets
 
+# Extract features and to data
+def generate_features(data_sets, data_cols, vectorizers):
+    print('Extracting features from data...')
+
+    # Get all data sets with features
+    X_cols = [col for col in data_cols if 'X' in col]
+    
+    # Add features
+    for col in X_cols:
+        for vec in vectorizers:
+            # Comment Text Length
+            print("\tGenerating 'comment_length' for {}_{}... ".format(col, vec), end='', flush=True)
+            data_sets[col+'_'+vec+features] = np.hstack((data_sets[col+'_'+vec].todense(), \
+                                                data_sets[col]['comment_text'].str.len().values.reshape(-1,1)))
+            print('Done.')
+
+            # Standard Deviation of Word Length in Comment Text
+            print("\tGenerating 'word_length_std' for {}_{}... ".format(col, vec), end='', flush=True)
+            stddevs = np.array([])
+            for row in data_sets[col]['comment_text'].str.split().iteritems():
+                value = np.std([len(word) for word in row[1]]) if len(row[1]) else 0.
+                stddevs = np.append(stddevs, value)
+            print('Done.')
+            data_sets[col+'_'+vec+features] = np.hstack((data_sets[col+'_'+vec+features], stddevs.reshape(-1,1)))
+            
+            print('Converting back to sparse matrix... ', end='', flush=True)
+            data_sets[col+'_'+vec+features] = sparse.csr_matrix(data_sets[col+'_'+vec+features])
+            print('Done.')
+
+    print('Done.')
+
+    return data_sets
+
 # Dump all models of a type fitted on all target columns
 def dump_models(model, X, model_name, target_cols, model_path='../pickle_objects/models/'):
     for target in target_cols:
-        file_name = '{}{}_{}_{}.sav'.format(model_path, model_name, X, target)
+        file_name = '{}{}_{}_{}.pkl'.format(model_path, model_name, X, target)
         if not path.isfile(file_name):
             print('\t\tDumping {} fitted on {}... '.format(model_name, target), end='', flush=True)
-            joblib.dump(model[target], open(file_name, 'wb'))
+            pickle.dump(model[target], open(file_name, 'wb'))
             print('Done.')
         else:
             print('\t\tDid not dump {} fitted on {}: File already exists in "{}".' \
@@ -163,13 +187,13 @@ def refit_best_models(data_sets, model_list, data_cols, best_models, \
     return best_refitted_models
 
 # Load all models of a type fitted on all target columns
-def load_models(model_name, X, model_path='../pickle_objects/models/'):
+def load_models(model_name, X, target_cols, model_path='../pickle_objects/models/'):
     model = {}
     for target in target_cols:
-        file_name = '{}{}_{}_{}.sav'.format(model_path, model_name, X, target)
+        file_name = '{}{}_{}_{}.pkl'.format(model_path, model_name, X, target)
         if path.isfile(file_name):
             print('\tLoading {} fitted on {}... '.format(model_name, target), end='', flush=True)
-            model[target] = joblib.load(open(file_name, 'rb'))
+            model[target] = pickle.load(open(file_name, 'rb'))
             print('Done.')
         else:
             print('\tDid not load {} fitted on {}: File not found in "{}".' \
@@ -182,7 +206,7 @@ def load_all_models(model_list, data_cols, target_cols, model_path='../pickle_pa
     best_models = {}
     X, y = data_cols
     for model_name in model_list:
-        best_models[model_name] = load_models(model_name, X, model_path)
+        best_models[model_name] = load_models(model_name, X, target_cols, model_path)
     print('Done.')
     return best_models
 
@@ -202,27 +226,26 @@ def predict_labels_and_probas(fitted_models, model_list, X, target_cols):
 
 # Plot ROC curves for all models / target columns
 def plot_model_roc_curves(y_test, probabilities, model_list, target_cols, vec='countvec', \
-                          plot_type='model', plots_path='../plots/'):
+                          plot_type='model', features='_features', plots_path='../plots/'):
     aucs = {}
     # Plot by model
     if plot_type == 'model':
         for model in model_list:
             print('\tPlotting ROC curve for {}... '.format(model), end='', flush=True)
             aucs[model] = {}
-            plt.figure(figsize=(10,8))
+            plt.figure(figsize=(5,4))
             for target in target_cols:
                 fpr, tpr, threshold = roc_curve(y_test[target], probabilities[model][target])
                 auc_value = auc(fpr, tpr)
                 aucs[model][target] = auc_value
-                plt.plot(fpr, tpr, label='{}: {:0.5f}'.format('auc_'+target, auc_value))
+                plt.plot(fpr, tpr, label='{}: {:0.5f}'.format('auc{}_'.format(features)+target, auc_value))
             plt.xlabel('fpr')
             plt.ylabel('tpr')
-            plt.title('ROC Curve for {} with {}'.format(model, vec))
+            plt.title('ROC Curve for {}{} with {}'.format(model, features, vec))
             plt.xlim([0, 1])
             plt.ylim([0, 1])
-            plt.legend(bbox_to_anchor=(1.01, 1), loc=2, borderaxespad=0.)
-            plt.tight_layout()
-            plt.savefig(plots_path+'roc_'+model+'_'+vec+'.jpg')
+            plt.legend(loc=4)
+            plt.savefig(plots_path+'roc_'+model+'_'+vec+features+'.jpg')
             plt.close('all')
             print('Done.')
     # Plot by target column
@@ -230,24 +253,23 @@ def plot_model_roc_curves(y_test, probabilities, model_list, target_cols, vec='c
         for target in target_cols:
             print('\tPlotting ROC curve for {}... '.format(target), end='', flush=True)
             aucs[target] = {}
-            plt.figure(figsize=(10,8))
+            plt.figure(figsize=(5,4))
             for model in model_list:
                 fpr, tpr, threshold = roc_curve(y_test[target], probabilities[model][target])
                 auc_value = auc(fpr, tpr)
                 aucs[target][model] = auc_value
-                plt.plot(fpr, tpr, label='{}: {:0.5f}'.format('auc_'+model, auc_value))
+                plt.plot(fpr, tpr, label='{}: {:0.5f}'.format('auc{}_'.format(features)+model, auc_value))
             plt.xlabel('fpr')
             plt.ylabel('tpr')
-            plt.title('ROC Curve for {} with {}'.format(target, vec))
+            plt.title('ROC Curve for {}{} with {}'.format(target, features, vec))
             plt.xlim([0, 1])
             plt.ylim([0, 1])
-            plt.legend(bbox_to_anchor=(1.01, 1), loc=2, borderaxespad=0.)
-            plt.tight_layout()
-            plt.savefig(plots_path+'roc_'+target+'_'+vec+'.jpg')
+            plt.legend(loc=4)
+            plt.savefig(plots_path+'roc_'+target+'_'+vec+features+'.jpg')
             plt.close('all')
             print('Done.')
     else:
-        raise TypeError("Parameter 'plot_type' must be one of 'model' or 'target'.")
+        raise ValueError("Parameter 'plot_type' must be one of 'model' or 'target'.")
     return aucs
 
 # Generate mean column-wise AUC for all models
@@ -271,16 +293,14 @@ def get_aucs_df(aucs, model_list, target_cols, plot_type='model'):
     return aucs_df
 
 # Plot all ROC curves, dump all mean column-wise AUCs, generate summary AUCs dataframe, and return final predictions
-def plot_and_dump_results(data_sets, best_refitted_models, model_list, vec, target_cols, plot_type='model', \
-                          is_clean=1, is_os=0, plots_path='../plots/', pickle_path='../pickle_objects/'):
-    clean = '_clean' if is_clean else ''
-    os = '_os' if is_os else ''
+def plot_and_dump_results(data_sets, best_refitted_models, model_list, vec, target_cols, plot_type='model', clean='_clean', \
+                          os='', features='_features', plots_path='../plots/', pickle_path='../pickle_objects/'):
 
     probabilities, predictions = predict_labels_and_probas(best_refitted_models[vec], model_list, \
-                                                           data_sets['X_test'+clean+os+'_'+vec], target_cols)
+                                                           data_sets['X_test'+clean+os+'_'+vec+features], target_cols)
     
     aucs = plot_model_roc_curves(data_sets['y_test'+clean+os], probabilities, model_list, \
-                                 target_cols, vec, plot_type, plots_path)
+                                 target_cols, vec, features, plot_type, plots_path)
 
     pretty_print(aucs)
 
@@ -294,37 +314,43 @@ def plot_and_dump_results(data_sets, best_refitted_models, model_list, vec, targ
     print(aucs_df)
 
     print('\tDumping AUCs DataFrame... ', end='', flush=True)
-    pickle.dump(aucs_df, open('{}aucs_{}.pkl'.format(pickle_path, vec), 'wb'))
+    pickle.dump(aucs_df, open('{}aucs_{}{}.pkl'.format(pickle_path, vec, features), 'wb'))
     print('Done.\n')
 
     if plot_type == 'model':
-        return predictions
+        return probabilities, predictions
 
 def main():
     # Set random seed
     random.seed(1337)
-    
+
     # Specify whether to use cleaned data or not
     is_clean, is_os = 1, 0
-    clean, os = '_clean', ''
+    clean = '_clean' if is_clean else ''
+    os = '_os' if is_os else ''
+
+    # Specify whether to use additional features
+    use_features = 1
+    features = '_features' if use_features else ''
 
     # Set all folder paths
     data_path = '../data/'
     pickle_path = '../pickle_objects/'
-    model_path = pickle_path + 'model/'
-    plots_path = '../plots/'
+    model_path = pickle_path + 'models{}/'.format(features)
+    plots_path = '../plots{}/'.format(features)
 
     # Specify initial variables
     target_cols = ['toxic', 'severe_toxic', 'obscene', 'threat', 'insult', 'identity_hate']
     vectorizers = ['countvec', 'tfidf']
     plot_types = ['model', 'target']
+    data_cols = ['X_train', 'X_train_val', 'X_test', 'y_train', 'y_train_val', 'y_test']
+    for i, col in enumerate(data_cols):
+        data_cols[i] = col + clean + os
 
     create_paths([data_path, pickle_path, model_path, plots_path])
 
     # Load all data sets
-    data_sets = load_data(data_path, is_clean=is_clean, is_os=is_os)
-
-    print(data_sets['data'+clean+os].head(10))
+    data_sets = load_data(data_cols, data_path, clean=clean, os=os)
 
     print(data_sets['X_train'+clean+os].head())
 
@@ -333,19 +359,23 @@ def main():
     ngrams = 2
 
     # Load ngrams fitted on X_train (+clean+os)
-    ngrams_data = load_ngrams(data_sets, 'X_train', num_feats, ngrams, vectorizers, pickle_path, is_clean, is_os)
+    ngrams_data = load_ngrams(data_sets, 'X_train', num_feats, ngrams, vectorizers, pickle_path, clean, os)
 
     # Transform X_train_val (+clean+os) to ngrams
     data_sets = transform_to_ngrams(data_sets, ['X_train_val'+clean+os], ngrams_data, vectorizers)
+
+    # Extract features and add to data
+    if use_features:
+        data_sets = generate_features(data_sets, data_cols, vectorizers)
 
     # List all models to be run
     model_list = {
         'bnb': BernoulliNB(),
         'lrl1': LogisticRegression(penalty='l1'),
         'lrl2': LogisticRegression(penalty='l2'),
+        'nbsvm': NBSVMClassifier(dual=True),
         'rf': RandomForestClassifier(),
-        'xgb': XGBClassifier(),
-    #     'svm': SVC(kernel='linear')
+        'xgb': XGBClassifier()
     }
     
     # Specify corresponding parameters for GridSearchCV
@@ -355,18 +385,19 @@ def main():
                                       np.logspace(1., 6., num=6, endpoint=True, base=10)))},
         'lrl2': {'C': np.concatenate((np.reciprocal(np.arange(1., 13., 3.)), \
                                       np.logspace(1., 6., num=6, endpoint=True, base=10)))},
+        'nbsvm': {'C': np.concatenate((np.reciprocal(np.arange(1., 13., 3.)), \
+                                      np.logspace(1., 6., num=6, endpoint=True, base=10)))},
         'rf': {
-            'n_estimators': np.arange(50, 250, 50),
+            'n_estimators': np.arange(50, 550, 50),
             'max_features': ['auto', 'log2'],
-            'max_depth': np.arange(3, 13, 2)
+            'max_depth': np.arange(3, 17, 2)
         },
         'xgb': {
-            'n_estimators': np.arange(50, 250, 50),
-            'max_depth': np.arange(3, 13, 2),
+            'n_estimators': np.arange(50, 550, 50),
+            'max_depth': np.arange(3, 17, 2),
             'learning_rate': [1e-1, 1e-3, 1e-5],
-            'reg_lambda': [1, 10, 1e-1]
-        },
-    #     'svm': {'C': np.concatenate((np.arange(1, 13, 3), np.logspace(1, 6, num=6, endpoint=True, base=10)))},
+            'reg_lambda': [1e-1, 1, 10, 50]
+        }
     }
 
     # Set predefined split for CV
@@ -378,43 +409,50 @@ def main():
     best_models = {}
     for vec in vectorizers:
         print('Running for {}...'.format(vec))
-        data_cols = ('X_train_val'+clean+os+'_'+vec, 'y_train_val'+clean+os)
+        data_cols = ('X_train_val'+clean+os+'_'+vec+features, 'y_train_val'+clean+os)
         best_models[vec] = fit_all_models(data_sets, data_cols, model_list, param_grids, \
                                           target_cols, model_path, cv=predefined_split)
         print('\n')
 
     # Load ngrams fitted on X_train_val (+clean+os)
-    ngrams_data = load_ngrams(data_sets, 'X_train_val', num_feats, ngrams, vectorizers, pickle_path, is_clean, is_os)
+    ngrams_data = load_ngrams(data_sets, 'X_train_val', num_feats, ngrams, vectorizers, pickle_path, clean, os)
 
     # Transform X_train_val and X_test (+clean+os) to ngrams
     data_sets = transform_to_ngrams(data_sets, ['X_train_val'+clean+os, 'X_test'+clean+os], \
                                     ngrams_data, vectorizers)
 
+    # Extract features and add to data
+    if use_features:
+        data_sets = generate_features(data_sets, data_cols, vectorizers)
+
     # Refit all models with best parameters on ngrams fitted on X_train_val (+clean+os)
     best_refitted_models = {}
     for vec in vectorizers:
         print('\nRunning for {}...'.format(vec))
-        data_cols = ('X_train_val'+clean+os+'_'+vec, 'y_train_val'+clean+os)
+        data_cols = ('X_train_val'+clean+os+'_'+vec+features, 'y_train_val'+clean+os)
         best_refitted_models[vec] = refit_best_models(data_sets, model_list, data_cols, \
                                                       best_models[vec], target_cols, model_path)
+        # Load models if already fitted and dumped
+        # best_refitted_models[vec] = load_all_models(model_list, data_cols, target_cols, model_path)
         print('\n')
 
-    predictions = {} # Store predictions for all models
+    probabilities, predictions = {}, {} # Store probabilities and predictions for all models
 
     # Plot all ROC curves, dump all mean column-wise AUCs, generate summary AUCs dataframe, and get final predictions
     for plot_type in plot_types:
         for vec in vectorizers:
             print('Generating results for {}...'.format(vec))
             if plot_type == 'model':
-                predictions[vec] = plot_and_dump_results(data_sets, best_refitted_models, model_list, vec, target_cols, \
-                                                         plot_type, is_clean, is_os, plots_path, pickle_path)
+                probabilities[vec], predictions[vec] = plot_and_dump_results(data_sets, best_refitted_models, model_list, vec, target_cols, \
+                                                         plot_type, clean, os, features, plots_path, pickle_path)
             else:
                 plot_and_dump_results(data_sets, best_refitted_models, model_list, vec, target_cols, \
-                                      plot_type, is_clean, is_os, plots_path, pickle_path)
+                                      plot_type, clean, os, features, plots_path, pickle_path)
             print('Done.')
 
-    # Dump all final predictions
-    pickle.dump(predictions, open(pickle_path+'predictions.pkl', 'wb'))
+    # Dump all final probabilities and predictions
+    pickle.dump(probabilities, open(pickle_path+'probabilities{}.pkl'.format(features), 'wb'))
+    pickle.dump(predictions, open(pickle_path+'predictions{}.pkl'.format(features), 'wb'))
 
 if __name__ == "__main__":
     main()
