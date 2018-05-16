@@ -93,11 +93,8 @@ def transform_to_ngrams(data_sets, data_cols, ngrams_data, vectorizers):
     return data_sets
 
 # Extract features and to data
-def generate_features(data_sets, data_cols, vectorizers):
+def generate_features(data_sets, X_cols, vectorizers, features):
     print('Extracting features from data...')
-
-    # Get all data sets with features
-    X_cols = [col for col in data_cols if 'X' in col]
     
     # Add features
     for col in X_cols:
@@ -383,7 +380,7 @@ def main():
         print('\n')
 
     # Set ngram variables
-    num_feats = 1000
+    num_feats = 5000
     ngrams = 2
 
     # Load ngrams fitted on X_train (+clean+os)
@@ -394,7 +391,7 @@ def main():
 
     # Extract features and add to data
     if use_features:
-        data_sets = generate_features(data_sets, data_cols, vectorizers)
+        data_sets = generate_features(data_sets, ['X_train_val'+clean+os], vectorizers, features)
 
     # List all models to be run
     model_list = {
@@ -451,7 +448,7 @@ def main():
 
     # Extract features and add to data
     if use_features:
-        data_sets = generate_features(data_sets, data_cols, vectorizers)
+        data_sets = generate_features(data_sets, ['X_train_val'+clean+os, 'X_test'+clean+os], vectorizers, features)
 
     # Refit all models with best parameters on ngrams fitted on X_train_val (+clean+os)
     best_refitted_models = {}
